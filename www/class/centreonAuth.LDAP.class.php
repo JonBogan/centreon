@@ -327,7 +327,7 @@ class CentreonAuthLDAP
                         WHERE contact_ldap_dn = '" . $this->pearDB->escape($userDn) . "'";
                     $res = $this->pearDB->query($query);
                     $row = $res->fetchRow();
-                    $contact_id = $row['contact_id'];
+                    $this->contactInfos['contact_id'] = $row['contact_id'];
                     $listGroup = $this->ldap->listGroupsForUser($userDn);
                     $listGroupStr = "";
                     foreach ($listGroup as $gName) {
@@ -347,15 +347,71 @@ class CentreonAuthLDAP
                     while ($row = $res->fetchRow()) {
                         $query = "INSERT INTO contactgroup_contact_relation
     	            						(contactgroup_cg_id, contact_contact_id)
-    	            					VALUES (" . $row['cg_id'] . ", " . $contact_id . ")";
-                        $this->pearDB->query($query);
+    	            					VALUES (:ldapCg, :contactId)";
+                        $stmt = $this->pearDB->prepare($query);
+                        $stmt->bindValue(':ldapCg', $row['cg_id'], PDO::PARAM_INT);
+                        $stmt->bindValue(':contactId', $this->contactInfos['contact_id'], PDO::PARAM_INT);
+                        $stmt->execute();
                     }
                     return true;
                 } catch (\PDOException $e) {
                     // Nothing
                 }
             }
+            setUserLdapDefautContactgroup($this->arId, $this->contactInfos['contact_id']);
         }
         return false;
+    }
+
+    /**
+     * Set a relation between the LDAP defaut contact group and the user
+     *
+     * @param int $arId
+     * @param int $contactId
+     *
+     * @return bool
+     */
+    public function setUserLdapDefautContactgroup(int $arId = null, int $contactId = null)
+    {
+        if (!$arId || !$contactId || empty($action)) {
+            return false;
+        }
+
+        $ldapCg = null;
+        try {
+            // searching the default contactgroup chosen in the ldap configuration
+            $resLdap = $this->db->prepare("SELECT ldap_default_cg FROM auth_ressource_info WHERE ar_id = :arId");
+            $resLdap->bindValue(':arId', $arId, PDO::PARAM_INT);
+            $resLdap->execute();
+            while ($result = $resLdap->fetch()) {
+                $ldapCg = $result['ldap_default_cg'];
+            }
+            if (null === $ldapCg) {
+                return false;
+            }
+            unset($resLdap);
+
+            // checking if the user isn't already linked to this contactgroup
+            $resCgExist = $this->db->prepare("SELECT COUNT(*) FROM contactgroup_contact_relation " .
+                "WHERE contact_contact_id = :contactId AND contactgroup_cg_id = :ldapCg");
+            $resCgExist->bindValue(':contactId', $contactId, PDO::PARAM_INT);
+            $resCgExist->bindValue(':ldapCg', $ldapCg, PDO::PARAM_INT);
+            $resCgExist->execute();
+            while ($resCgExist->rowCount()) {
+                return false;
+            }
+            unset($resCgExist);
+
+            // inserting the user to the default contact group chosen
+            $resCg = $this->db->prepare("INSERT INTO contactgroup_contact_relation " .
+                "(contactgroup_cg_id, contact_contact_id) VALUES (:ldapCg, :contactId)");
+            $resCg->bindValue(':ldapCg', $ldapCg, PDO::PARAM_INT);
+            $resCg->bindValue(':contactId', $contactId, PDO::PARAM_INT);
+            $resCg->execute();
+            unset($resCg);
+        } catch (\PDOException $e) {
+            return false;
+        }
+        return true;
     }
 }
