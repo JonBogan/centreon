@@ -318,6 +318,8 @@ if (!$centreon->user->access->checkAction("host_schedule_downtime")
     if(!$gmt) {
         $gmt = date_default_timezone_get();
     }
+    $data["start"] = $centreonGMT->getDate("m/d/Y", time(), $gmt);
+    $data["end"] = $centreonGMT->getDate("m/d/Y", time() + 7200, $gmt);
     $data["start_time"] = $centreonGMT->getDate("G:i", time(), $gmt);
     $data["end_time"] = $centreonGMT->getDate("G:i", time() + 7200, $gmt);
     $data["host_or_hg"] = 1;
